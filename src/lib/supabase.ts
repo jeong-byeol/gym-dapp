@@ -28,6 +28,7 @@ export interface UserData {
   start_date?: string | null;
   end_date?: string | null;
   remain_session?: number | null;
+  created_at?: string;
 }
 
 // 출석 데이터 타입 정의
@@ -210,3 +211,214 @@ export async function updatePTSession(userId: string) {
     throw error;
   }
 }
+
+// ===== ADMIN 기능들 =====
+
+// 1. 당일 출석 인원 조회
+export const getTodayAttendance = async () => {
+  console.log('=== 당일 출석 인원 조회 시작 ===');
+  
+  if (!supabase) {
+    console.error('Supabase 클라이언트가 초기화되지 않았습니다');
+    throw new Error('데이터베이스 연결 실패');
+  }
+
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD 형식
+  console.log('조회 날짜:', today);
+
+  const { data, error } = await supabase
+    .from('Attendance')
+    .select(`
+      *,
+      Users (
+        id,
+        name,
+        phone,
+        membership_type,
+        wallet_address
+      )
+    `)
+    .gte('check_in_time', `${today}T00:00:00.000Z`)
+    .lt('check_in_time', `${today}T23:59:59.999Z`)
+    .order('check_in_time', { ascending: false });
+
+  if (error) {
+    console.error('당일 출석 조회 실패:', error);
+    throw new Error(`당일 출석 조회 실패: ${error.message}`);
+  }
+
+  console.log('당일 출석 조회 성공:', data?.length, '명');
+  return data || [];
+};
+
+// 2. 전체 회원 목록 조회 (상태 포함)
+export const getAllMembers = async () => {
+  console.log('=== 전체 회원 목록 조회 시작 ===');
+  
+  if (!supabase) {
+    console.error('Supabase 클라이언트가 초기화되지 않았습니다');
+    throw new Error('데이터베이스 연결 실패');
+  }
+
+  const { data, error } = await supabase
+    .from('Users')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('회원 목록 조회 실패:', error);
+    throw new Error(`회원 목록 조회 실패: ${error.message}`);
+  }
+
+  console.log('회원 목록 조회 성공:', data?.length, '명');
+  return data || [];
+};
+
+// 3. 신규 등록 회원 조회 (최근 7일)
+export const getNewMembers = async (days: number = 7) => {
+  console.log('=== 신규 등록 회원 조회 시작 ===', `최근 ${days}일`);
+  
+  if (!supabase) {
+    console.error('Supabase 클라이언트가 초기화되지 않았습니다');
+    throw new Error('데이터베이스 연결 실패');
+  }
+
+  const dateLimit = new Date();
+  dateLimit.setDate(dateLimit.getDate() - days);
+  const dateLimitString = dateLimit.toISOString();
+
+  const { data, error } = await supabase
+    .from('Users')
+    .select('*')
+    .gte('created_at', dateLimitString)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('신규 회원 조회 실패:', error);
+    throw new Error(`신규 회원 조회 실패: ${error.message}`);
+  }
+
+  console.log('신규 회원 조회 성공:', data?.length, '명');
+  return data || [];
+};
+
+// 4. 만료 예정 회원 조회 (자유이용권 만료 임박)
+export const getExpiringMembers = async (days: number = 7) => {
+  console.log('=== 만료 예정 회원 조회 시작 ===', `${days}일 이내`);
+  
+  if (!supabase) {
+    console.error('Supabase 클라이언트가 초기화되지 않았습니다');
+    throw new Error('데이터베이스 연결 실패');
+  }
+
+  const today = new Date().toISOString().split('T')[0];
+  const futureDate = new Date();
+  futureDate.setDate(futureDate.getDate() + days);
+  const futureDateString = futureDate.toISOString().split('T')[0];
+
+  const { data, error } = await supabase
+    .from('Users')
+    .select('*')
+    .eq('membership_type', 'free')
+    .gte('end_date', today) // 아직 만료되지 않음
+    .lte('end_date', futureDateString) // 지정된 날짜 이내 만료
+    .order('end_date', { ascending: true });
+
+  if (error) {
+    console.error('만료 예정 회원 조회 실패:', error);
+    throw new Error(`만료 예정 회원 조회 실패: ${error.message}`);
+  }
+
+  console.log('만료 예정 회원 조회 성공:', data?.length, '명');
+  return data || [];
+};
+
+// 5. PT 세션 부족 회원 조회 (5회 이하)
+export const getLowSessionMembers = async (sessionLimit: number = 5) => {
+  console.log('=== PT 세션 부족 회원 조회 시작 ===', `${sessionLimit}회 이하`);
+  
+  if (!supabase) {
+    console.error('Supabase 클라이언트가 초기화되지 않았습니다');
+    throw new Error('데이터베이스 연결 실패');
+  }
+
+  const { data, error } = await supabase
+    .from('Users')
+    .select('*')
+    .eq('membership_type', 'pt')
+    .lte('remain_session', sessionLimit)
+    .order('remain_session', { ascending: true });
+
+  if (error) {
+    console.error('PT 세션 부족 회원 조회 실패:', error);
+    throw new Error(`PT 세션 부족 회원 조회 실패: ${error.message}`);
+  }
+
+  console.log('PT 세션 부족 회원 조회 성공:', data?.length, '명');
+  return data || [];
+};
+
+// 6. 회원 통계 정보 조회
+export const getMemberStats = async () => {
+  console.log('=== 회원 통계 정보 조회 시작 ===');
+  
+  if (!supabase) {
+    console.error('Supabase 클라이언트가 초기화되지 않았습니다');
+    throw new Error('데이터베이스 연결 실패');
+  }
+
+  // 전체 회원 수
+  const { count: totalMembers, error: totalError } = await supabase
+    .from('Users')
+    .select('*', { count: 'exact', head: true });
+
+  if (totalError) {
+    console.error('전체 회원 수 조회 실패:', totalError);
+    throw new Error(`전체 회원 수 조회 실패: ${totalError.message}`);
+  }
+
+  // PT 이용권 회원 수
+  const { count: ptMembers, error: ptError } = await supabase
+    .from('Users')
+    .select('*', { count: 'exact', head: true })
+    .eq('membership_type', 'pt');
+
+  if (ptError) {
+    console.error('PT 회원 수 조회 실패:', ptError);
+    throw new Error(`PT 회원 수 조회 실패: ${ptError.message}`);
+  }
+
+  // 자유이용권 회원 수
+  const { count: freeMembers, error: freeError } = await supabase
+    .from('Users')
+    .select('*', { count: 'exact', head: true })
+    .eq('membership_type', 'free');
+
+  if (freeError) {
+    console.error('자유이용권 회원 수 조회 실패:', freeError);
+    throw new Error(`자유이용권 회원 수 조회 실패: ${freeError.message}`);
+  }
+
+  // 오늘 출석 수
+  const today = new Date().toISOString().split('T')[0];
+  const { count: todayAttendance, error: attendanceError } = await supabase
+    .from('Attendance')
+    .select('*', { count: 'exact', head: true })
+    .gte('check_in_time', `${today}T00:00:00.000Z`)
+    .lt('check_in_time', `${today}T23:59:59.999Z`);
+
+  if (attendanceError) {
+    console.error('오늘 출석 수 조회 실패:', attendanceError);
+    throw new Error(`오늘 출석 수 조회 실패: ${attendanceError.message}`);
+  }
+
+  const stats = {
+    totalMembers: totalMembers || 0,
+    ptMembers: ptMembers || 0,
+    freeMembers: freeMembers || 0,
+    todayAttendance: todayAttendance || 0,
+  };
+
+  console.log('회원 통계 조회 성공:', stats);
+  return stats;
+};

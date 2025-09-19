@@ -83,6 +83,7 @@ export default function RegisterPage() {
         name: name.trim(),
         phone: phone.trim(),
         membership_type: membershipType,
+        created_at: new Date().toISOString(), // 현재 시간을 등록일로 저장
         ...dateInfo // 날짜 정보 또는 세션 횟수 정보 저장
       };
 
