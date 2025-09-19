@@ -4,6 +4,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useWriteContract } from 'wagmi';
 import { useState } from 'react';
 import MembershipABI from '@/abi/Membership.json';
+import { registerUser, UserData } from '@/lib/supabase';
 
 export default function RegisterPage() {
   const { address, isConnected } = useAccount(); // 현재 연결된 지갑 주소 가져오기
@@ -19,7 +20,6 @@ export default function RegisterPage() {
   
   // 멤버십 등록 처리 함수
   const handleRegister = async () => {
-    console.log(contractAddress);
     if (!isConnected) {
       alert('먼저 지갑을 연결해주세요!');
       return;
@@ -49,15 +49,49 @@ export default function RegisterPage() {
       // selectedOption을 정수로 변환 (1,3,6 = 자유이용권 개월수, 10,20,30 = PT이용권 횟수)
       const selectedOption = parseInt(membershipType === 'pt' ? ptOption : freeOption);
       
-      console.log('스마트 컨트랙트 호출:', {
-        address: contractAddress as `0x${string}`,
-        userAddress: address,
-        selectedOption,
-        membershipType,
-        name,
-        phone
-      });
+      // 날짜 계산 함수
+      const calculateDates = (membershipType: 'pt' | 'free', option: number) => {
+        const today = new Date();
+        const startDate = today.toISOString().split('T')[0]; // YYYY-MM-DD 형식
+        
+        if (membershipType === 'free') {
+          // 자유이용권: 시작일과 종료일 계산
+          const endDate = new Date(today);
+          endDate.setMonth(endDate.getMonth() + option); // 선택한 개월수만큼 더하기
+          
+          return {
+            start_date: startDate,
+            end_date: endDate.toISOString().split('T')[0],
+            remain_session: null
+          };
+        } else {
+          // PT이용권: 남은 세션 횟수만 저장
+          return {
+            start_date: null,
+            end_date: null,
+            remain_session: option
+          };
+        }
+      };
+      
+      // 날짜 및 세션 정보 계산
+      const dateInfo = calculateDates(membershipType, selectedOption);
+      
+      // Supabase에 저장할 사용자 데이터 준비
+      const userData: Omit<UserData, 'id'> = {
+        wallet_address: address!,
+        name: name.trim(),
+        phone: phone.trim(),
+        membership_type: membershipType,
+        ...dateInfo // 날짜 정보 또는 세션 횟수 정보 저장
+      };
 
+      console.log('Supabase에 저장할 데이터:', userData);
+
+      // 1. Supabase에 사용자 데이터 저장
+      await registerUser(userData);
+
+      // 2. 스마트 컨트랙트 NFT 발급
       await writeContract({
         address: contractAddress as `0x${string}`,
         abi: MembershipABI,
@@ -65,10 +99,22 @@ export default function RegisterPage() {
         args: [address, selectedOption],
       });
     
-      alert(`${membershipType === 'pt' ? 'PT이용권' : '자유이용권'} NFT 발급이 완료되었습니다!`);
+      alert(`${membershipType === 'pt' ? 'PT이용권' : '자유이용권'} 등록 및 NFT 발급이 완료되었습니다!`);
     } catch (error) {
       console.error('등록 실패:', error);
-      alert('등록 중 오류가 발생했습니다.');
+      
+      // 에러 타입에 따른 구체적인 메시지 제공
+      if (error instanceof Error) {
+        if (error.message.includes('Supabase')) {
+          alert('데이터베이스 저장 중 오류가 발생했습니다. 환경설정을 확인해주세요.');
+        } else if (error.message.includes('User rejected')) {
+          alert('트랜잭션이 취소되었습니다.');
+        } else {
+          alert(`등록 중 오류가 발생했습니다: ${error.message}`);
+        }
+      } else {
+        alert('등록 중 알 수 없는 오류가 발생했습니다.');
+      }
     } finally {
       setIsLoading(false);
     }

@@ -1,12 +1,4 @@
 import { getDefaultConfig } from '@rainbow-me/rainbowkit';
-import {
-  arbitrum,
-  base,
-  mainnet,
-  optimism,
-  polygon,
-  sepolia,
-} from 'wagmi/chains';
 import { defineChain } from 'viem';
 
 // Klaytn Kairos 테스트넷 정의
@@ -45,13 +37,8 @@ export const config = getDefaultConfig({
   appName: 'Gym DApp',
   projectId: 'YOUR_PROJECT_ID', // WalletConnect Cloud에서 가져온 프로젝트 ID
   chains: [
-    mainnet,
-    polygon,
-    optimism,
-    arbitrum,
-    base,
     kairos, // Klaytn Kairos 테스트넷 추가
-    ...(process.env.NODE_ENV === 'development' ? [sepolia] : []),
+    ...(process.env.NODE_ENV === 'development' ? [kairos] : []),
   ],
   ssr: true, // Next.js에서 서버사이드 렌더링을 위해 true로 설정
 });
